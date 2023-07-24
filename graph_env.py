@@ -22,6 +22,7 @@ from copy import deepcopy
 
 qiskit_nature.settings.dict_aux_operators = False
 
+
 def binary_sum(x):
     # Summing in pyclifford seems to take quadratic time. More efficient to do a recursive sum over halves of the list.
     if len(x) < 30:
@@ -84,6 +85,7 @@ def create_stabilizer_state(adj_matrix):
 
 def gate(qubit, type):
     H = stabilizer.stabilizer_state('X').to_map()
+    I = stabilizer.stabilizer_state('I').to_map()
     if type == 'H':
         gate = circuit.CliffordGate(qubit)
         gate.set_forward_map(H)
@@ -91,6 +93,10 @@ def gate(qubit, type):
     if type == 'S':
         gate = circuit.CliffordGate(qubit)
         gate.set_generator(paulialg.pauli('Z'))
+        return gate
+    if type == 'I':
+        gate = circuit.CliffordGate(qubit)
+        gate.set_forward_map(I)
         return gate
     raise Exception('Invalid gate type.')
 
@@ -101,11 +107,10 @@ def construct_circ(gates):
     return circ
 
 def construct_all_circuits(qubits):
-    possibleops = ['', 'H', 'S', 'HS', 'SH', 'SS', 'HSH', 'SHS', 'SSH', 'HSS', 'SSS', 'SSSH', 'HSSS', 'HSHS', 'SHSH', 'HSSSH', 'SHSSH', 'SSHSH', 'SHSHS', 'HSSHS', 'SHSSS', 'SSSHS', 'SSHSS', 'HSHSH']
     circuits = [] # [[qubit0circ0, qubit0circ1, ...], [qubit1circ0, qubit1circ1, ...]
     for i in range(qubits):
         qubit_circuits = []
-        for op in possibleops:
+        for op in POSSIBLEUNITARIES:
             qubit_circuits.extend(construct_circ([gate(i, k) for k in op]))
         circuits + qubit_circuits
     return circuits
@@ -120,6 +125,36 @@ def create_edges(qubits):
             edges.append(edge)
     return edges
 
+MOL = "H2O"
+
+BOND_DIS = 1.6
+
+N_QUBITS = 10
+
+N_EDGES = N_QUBITS * (N_QUBITS - 1) // 2
+
+ACTIONS = construct_all_circuits(N_QUBITS) + create_edges(N_QUBITS)
+
+POSSIBLEUNITARIES = ['H', 'S', 'HS', 'SH', 'SS', 'HSH', 'SHS', 'SSH', 'HSS', 'SSS', 'SSSH', 'HSSS', 'HSHS', 'SHSH', 'HSSSH', 'SHSSH', 'SSHSH', 'SHSHS', 'HSSHS', 'SHSSS', 'SSSHS', 'SSHSS', 'HSHSH']
+
+N_UNITARIES = len(POSSIBLEUNITARIES)
+
+if MOL == "H2":
+    PYC_HAMILTONIAN, EE_EXACT, EE_NUC, EE_HF = calculate_hamiltonian([["H", [0.0, 0.0, 0.0]], ["H", [0.0, 0.0, BOND_DIS]]], True)
+elif MOL == "H2O":
+    # c1 = np.array([-0.0399, -0.0038, 0.0])
+    # c2 = np.array([1.5780, 0.8540, 0.0])
+    # c3 = np.array([2.7909, -0.5159, 0.0])
+    c1 = np.array([BOND_DIS * np.cos(np.pi * 104.5 / 180), BOND_DIS * np.sin(np.pi * 104.5 / 180), 0.0])
+    c2 = np.array([0.0, 0.0, 0.0])
+    c3 = np.array([BOND_DIS, 0.0, 0.0])
+    bond1 = np.linalg.norm(c1 - c2)
+    bond2 = np.linalg.norm(c3 - c2) 
+    print("bond length:", bond1, bond2)
+    PYC_HAMILTONIAN, EE_EXACT, EE_NUC, EE_HF = calculate_hamiltonian([["H", c1], ["O", c2], ["H", c3]], True)
+
+INIT_ENERGY = np.real(create_stabilizer_state(np.zeros((N_QUBITS), (N_QUBITS))).expect(PYC_HAMILTONIAN))
+
 class GraphEnv(gym.Env, StaticEnv):
     """
     gym environment with the goal to navigate the player from its
@@ -129,72 +164,51 @@ class GraphEnv(gym.Env, StaticEnv):
     """ 
 
     def __init__(self):
-        mol = "H2O"
-        bond_dis = 1.6
-        if mol == "H2":
-            self.pyc_hamiltonian, self.ee_exact, self.ee_nuc, self.ee_hf = calculate_hamiltonian([["H", [0.0, 0.0, 0.0]], ["H", [0.0, 0.0, bond_dis]]], True)
-        elif mol == "H2O":
-            # c1 = np.array([-0.0399, -0.0038, 0.0])
-            # c2 = np.array([1.5780, 0.8540, 0.0])
-            # c3 = np.array([2.7909, -0.5159, 0.0])
-            c1 = np.array([bond_dis * np.cos(np.pi * 104.5 / 180), bond_dis * np.sin(np.pi * 104.5 / 180), 0.0])
-            c2 = np.array([0.0, 0.0, 0.0])
-            c3 = np.array([bond_dis, 0.0, 0.0])
-            bond1 = np.linalg.norm(c1 - c2)
-            bond2 = np.linalg.norm(c3 - c2) 
-            print("bond length:", bond1, bond2)
-            self.pyc_hamiltonian, self.ee_exact, self.ee_nuc, self.ee_hf = calculate_hamiltonian([["H", c1], ["O", c2], ["H", c3]], True)
         
-        self.n_qubits = self.pyc_hamiltonian[0].N
-
-        self.actions = construct_all_circuits(self.n_qubits) + create_edges(self.n_qubits)
-        
-        self.shape = (self.n_qubits, self.n_qubits)
+        self.shape = (N_QUBITS, N_QUBITS)
 
         self.graph = np.zeros(self.shape)
 
-        self.unitaries = [''] * 10
+        self.unitaries = np.zeros((N_QUBITS, 23))
 
         self.step_idx = 0
 
-        self.state = create_stabilizer_state(self.graph)
+        self.stabilizer_state = create_stabilizer_state(self.graph)
 
-        self.energy = np.real(self.state.expect(self.pyc_hamiltonian))
-
-    def calculate_energy(self):
-        newstate = create_stabilizer_state(self.graph)
+        self.energy = np.real(self.stabilizer_state.expect(PYC_HAMILTONIAN))
 
     def reset(self):
 
         self.graph = np.zeros(self.shape)
 
-        self.unitaries = [''] * 10
+        self.unitaries = np.zeros((N_QUBITS, 23))
         
         self.step_idx = 0
-        state = self.pos[0] * self.shape[0] + self.pos[1]
+        state = np.append(np.flatten(self.unitaries), np.flatten(self.graph))
         return state, 0, False, None
 
     def step(self, action):
         self.step_idx += 1
 
-        if action < self.n_qubits * 24 and self.unitaries[action // 24] == '':
-            self.unitaries[action // 24] = self.actions[action]
-            self.actions[action].forward(self.state)
+        if action < N_QUBITS * 23 and (self.unitaries[action // 23] == 0).all():
+            self.unitaries[action // 23][action % 23] = 1
+            ACTIONS[action].forward(self.stabilizer_state)
 
-        elif action >= self.n_qubits * 24:
-            temp_graph = np.add(self.graph, self.actions[action])
+        elif action >= N_QUBITS * 23:
+            temp_graph = np.add(self.graph, ACTIONS[action])
             if (temp_graph > 1).any(): return state, -0.5, False, None # reward = -0.5 for already connected edge, not done
             self.graph = temp_graph
-            self.state = create_stabilizer_state(self.graph)
-            for unitary in self.unitaries:
-                if unitary: self.state = unitary.forward(self.state)
+            self.stabilizer_state = create_stabilizer_state(self.graph)
+            for i in range(len(self.unitaries)):
+                pos = self.unitaries[i].argmax()
+                if self.unitaries[i][pos]: ACTIONS[23 * i + pos].forward(self.stabilizer_state)
 
         else: return state, -0.5, False, None # reward = -0.5 for invalid action, not done
         
-        e_after = np.real(self.state.expect(self.pyc_hamiltonian))
+        e_after = np.real(self.stabilizer_state.expect(PYC_HAMILTONIAN))
         reward = self.energy - e_after - 0.5   # -0.5 for encouraging speed
-        state = self.pos[0] * self.shape[0] + self.pos[1]
-        done = self.pos == (0, 6) or self.step_idx == self.ep_length
+        state = np.append(np.flatten(self.unitaries), np.flatten(self.graph))
+        done = np.add(self.graph, np.diag(np.ones(N_QUBITS))).all() and self.unitaries.any(1).all()
         return state, reward, done, None
 
     def render(self, mode='human'):
@@ -213,60 +227,46 @@ class GraphEnv(gym.Env, StaticEnv):
             print()
 
     @staticmethod
-    def next_state(state, action, shape=(7, 7)):
+    def next_state(state, action, shape=(N_QUBITS, N_QUBITS)):
+        unitaries = (state[:23 * shape[0]]).reshape((shape[0], 23))
+        graph = (state[23 * shape[0]:]).reshape(shape)
         
-        pos = np.unravel_index(state, shape)
-        if action == UP:
-            pos = (pos[0] - 1, pos[1])
-        if action == DOWN:
-            pos = (pos[0] + 1, pos[1])
-        if action == LEFT:
-            pos = (pos[0], pos[1] - 1)
-        if action == RIGHT:
-            pos = (pos[0], pos[1] + 1)
-        pos = HillClimbingEnv._limit_coordinates(pos, shape)
-        return pos[0] * shape[0] + pos[1]
+        if action < shape[0] * 23 and (unitaries[action // 23] == 0).all():
+            unitaries[action // 23][action % 23] = 1
+        elif action >= shape[0] * 23:
+            graph = np.add(graph, ACTIONS[action])
+            if (graph > 1).any(): return state
+        else: return state
+
+        return np.append(np.flatten(unitaries), np.flatten(graph))
 
     @staticmethod
-    def is_done_state(state, step_idx, shape=(7, 7)):
-        return np.unravel_index(state, shape) == (0, 6) or step_idx >= 15
+    def is_done_state(state, step_idx, shape=(N_QUBITS, N_QUBITS)):
+        unitaries = (state[:23 * shape[0]]).reshape((shape[0], 23))
+        graph = (state[23 * shape[0]:]).reshape(shape)
+        return step_idx >= 55 or np.add(graph, np.diag(np.ones(N_QUBITS))).all() and unitaries.any(1).all()
 
     @staticmethod
-    def initial_state(shape=(7, 7)):
-        return (shape[0] - 1) * shape[0]
+    def initial_state(shape=(N_QUBITS, N_QUBITS)):
+        return np.zeros(shape[0] * 23 + shape[0] * shape[1])
 
     @staticmethod
     def get_obs_for_states(states):
         return np.array(states)
 
     @staticmethod
-    def get_return(state, step_idx, shape=(7, 7)):
+    def get_return(state, step_idx, shape=(N_QUBITS, N_QUBITS)):
         row, col = np.unravel_index(state, shape)
-        return HillClimbingEnv.altitudes[row][col] - step_idx * 0.5
-
-    @staticmethod
-    def _limit_coordinates(coord, shape):
-        """
-        Prevent the agent from falling out of the grid world.
-        Adapted from
-        https://github.com/openai/gym/blob/master/gym/envs/toy_text/cliffwalking.py
-        """
-        coord = list(coord)
-        coord[0] = min(coord[0], shape[0] - 1)
-        coord[0] = max(coord[0], 0)
-        coord[1] = min(coord[1], shape[1] - 1)
-        coord[1] = max(coord[1], 0)
-        return tuple(coord)
+        unitaries = (state[:23 * shape[0]]).reshape((shape[0], 23))
+        graph = (state[23 * shape[0]:]).reshape(shape)
+        stabilizer_state = create_stabilizer_state(graph)
+        for i in range(len(unitaries)):
+            pos = unitaries[i].argmax()
+            if unitaries[i][pos]: ACTIONS[23 * i + pos].forward(stabilizer_state)
+        current_energy = np.real(stabilizer_state.expect(PYC_HAMILTONIAN))
+        return INIT_ENERGY - current_energy - 0.5 * step_idx
 
 
 if __name__ == '__main__':
-    env = HillClimbingEnv()
-    env.render()
-    print(env.step(UP))
-    env.render()
-    print(env.step(RIGHT))
-    env.render()
-    print(env.step(DOWN))
-    env.render()
-    print(env.step(LEFT))
+    env = GraphEnv()
     env.render()

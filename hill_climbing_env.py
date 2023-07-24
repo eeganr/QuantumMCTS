@@ -66,6 +66,7 @@ class HillClimbingEnv(gym.Env, StaticEnv):
         alt_after = self.altitudes[self.pos[0]][self.pos[1]]
         reward = alt_after - alt_before - 0.5   # -0.5 for encouraging speed
         state = self.pos[0] * self.shape[0] + self.pos[1]
+        print(state)
         done = self.pos == (0, 6) or self.step_idx == self.ep_length
         return state, reward, done, None
 

@@ -25,6 +25,7 @@ class HillClimbingPolicy(nn.Module):
     def forward(self, obs):
         obs_one_hot = torch.zeros((obs.shape[0], self.n_obs))
         obs_one_hot[np.arange(obs.shape[0]), obs] = 1.0
+        print(obs_one_hot)
         h_relu = F.relu(self.dense1(obs_one_hot))
         logits = self.dense_p(h_relu)
         policy = F.softmax(logits, dim=1)
@@ -41,6 +42,7 @@ class HillClimbingPolicy(nn.Module):
         the given observations.
         """
         obs = torch.from_numpy(obs)
+        print(obs)
         _, pi, v = self.forward(obs)
 
         return pi.detach().numpy(), v.detach().numpy()
