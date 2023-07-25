@@ -22,6 +22,9 @@ from copy import deepcopy
 
 qiskit_nature.settings.dict_aux_operators = False
 
+POSSIBLEUNITARIES = ['H', 'S', 'HS', 'SH', 'SS', 'HSH', 'SHS', 'SSH', 'HSS', 'SSS', 'SSSH', 'HSSS', 'HSHS', 'SHSH', 'HSSSH', 'SHSSH', 'SSHSH', 'SHSHS', 'HSSHS', 'SHSSS', 'SSSHS', 'SSHSS', 'HSHSH']
+
+N_UNITARIES = len(POSSIBLEUNITARIES)
 
 def binary_sum(x):
     # Summing in pyclifford seems to take quadratic time. More efficient to do a recursive sum over halves of the list.
@@ -45,13 +48,10 @@ def calculate_hamiltonian(geometry, use_pyscf=False):
     nuclear_repuls = es_problem.grouped_property_transformed.get_property("ElectronicEnergy").nuclear_repulsion_energy
     core_shift = es_problem.grouped_property_transformed.get_property("ElectronicEnergy")._shift['FreezeCoreTransformer']
     
-    print('Done calculating qubit_op.')
     is_identity = lambda x: str(x.primitive).count('I') == len(str(x.primitive))
     const_shift = sum([x.coeff for x in qubit_op if is_identity(x)])
     pyc_hamiltonian = binary_sum([x.coeff * paulialg.pauli(str(x.primitive)) for x in qubit_op if not is_identity(x)])
-    print('Done calculating pyclifford Hamiltonian.')
     if pyc_hamiltonian.N >= 14 or use_pyscf:
-        print("Using pyscf ground state estimate")
         mol_s = '; '.join([x + ' ' + ' '.join(map(str, y)) for x, y in geometry])
         mol = gto.M(atom=mol_s, basis='sto3g')
         rhf = scf.RHF(mol)
@@ -62,7 +62,6 @@ def calculate_hamiltonian(geometry, use_pyscf=False):
         return pyc_hamiltonian, (E0 - (nuclear_repuls + core_shift + const_shift)).real, (nuclear_repuls + const_shift + core_shift).real, ee_hf
     else:
         ee_hf = None
-        print("Using exact ground state")
         numpy_solver = NumPyMinimumEigensolver()
         calc = GroundStateEigensolver(qubit_converter, numpy_solver)
         res = calc.solve(es_problem)
@@ -111,9 +110,9 @@ def construct_all_circuits(qubits):
     for i in range(qubits):
         qubit_circuits = []
         for op in POSSIBLEUNITARIES:
-            qubit_circuits.extend(construct_circ([gate(i, k) for k in op]))
-        circuits + qubit_circuits
-    return circuits
+            qubit_circuits.append(construct_circ([gate(i, k) for k in op]))
+        circuits.append(qubit_circuits)
+    return list(np.array(circuits).flatten())
 
 def create_edges(qubits):
     edges = []
@@ -125,19 +124,17 @@ def create_edges(qubits):
             edges.append(edge)
     return edges
 
-MOL = "H2O"
+MOL = "H2"
 
 BOND_DIS = 1.6
 
-N_QUBITS = 10
+N_QUBITS = 2
 
 N_EDGES = N_QUBITS * (N_QUBITS - 1) // 2
 
+MAX_STEPS = N_QUBITS + N_EDGES
+
 ACTIONS = construct_all_circuits(N_QUBITS) + create_edges(N_QUBITS)
-
-POSSIBLEUNITARIES = ['H', 'S', 'HS', 'SH', 'SS', 'HSH', 'SHS', 'SSH', 'HSS', 'SSS', 'SSSH', 'HSSS', 'HSHS', 'SHSH', 'HSSSH', 'SHSSH', 'SSHSH', 'SHSHS', 'HSSHS', 'SHSSS', 'SSSHS', 'SSHSS', 'HSHSH']
-
-N_UNITARIES = len(POSSIBLEUNITARIES)
 
 if MOL == "H2":
     PYC_HAMILTONIAN, EE_EXACT, EE_NUC, EE_HF = calculate_hamiltonian([["H", [0.0, 0.0, 0.0]], ["H", [0.0, 0.0, BOND_DIS]]], True)
@@ -150,10 +147,9 @@ elif MOL == "H2O":
     c3 = np.array([BOND_DIS, 0.0, 0.0])
     bond1 = np.linalg.norm(c1 - c2)
     bond2 = np.linalg.norm(c3 - c2) 
-    print("bond length:", bond1, bond2)
     PYC_HAMILTONIAN, EE_EXACT, EE_NUC, EE_HF = calculate_hamiltonian([["H", c1], ["O", c2], ["H", c3]], True)
 
-INIT_ENERGY = np.real(create_stabilizer_state(np.zeros((N_QUBITS), (N_QUBITS))).expect(PYC_HAMILTONIAN))
+INIT_ENERGY = np.real(create_stabilizer_state(np.zeros((N_QUBITS, N_QUBITS))).expect(PYC_HAMILTONIAN))
 
 class GraphEnv(gym.Env, StaticEnv):
     """
@@ -162,6 +158,7 @@ class GraphEnv(gym.Env, StaticEnv):
     Rewards are defined as the negative of the energy between states minus a penalty for each step. 
     The player starts with no connected nodes. 
     """ 
+    n_actions = len(ACTIONS)
 
     def __init__(self):
         
@@ -182,10 +179,9 @@ class GraphEnv(gym.Env, StaticEnv):
         self.graph = np.zeros(self.shape)
 
         self.unitaries = np.zeros((N_QUBITS, 23))
-        
         self.step_idx = 0
-        state = np.append(np.flatten(self.unitaries), np.flatten(self.graph))
-        return state, 0, False, None
+        state = np.append(self.unitaries, self.graph)
+        return state.astype("float32"), 0, False, None
 
     def step(self, action):
         self.step_idx += 1
@@ -193,38 +189,26 @@ class GraphEnv(gym.Env, StaticEnv):
         if action < N_QUBITS * 23 and (self.unitaries[action // 23] == 0).all():
             self.unitaries[action // 23][action % 23] = 1
             ACTIONS[action].forward(self.stabilizer_state)
-
         elif action >= N_QUBITS * 23:
             temp_graph = np.add(self.graph, ACTIONS[action])
-            if (temp_graph > 1).any(): return state, -0.5, False, None # reward = -0.5 for already connected edge, not done
+            if (temp_graph > 1).any(): return np.append(self.unitaries, self.graph).astype("float32"), -10, self.step_idx >= MAX_STEPS, None # reward = -0.5 for already connected edge, not done
             self.graph = temp_graph
             self.stabilizer_state = create_stabilizer_state(self.graph)
             for i in range(len(self.unitaries)):
                 pos = self.unitaries[i].argmax()
                 if self.unitaries[i][pos]: ACTIONS[23 * i + pos].forward(self.stabilizer_state)
-
-        else: return state, -0.5, False, None # reward = -0.5 for invalid action, not done
+        else: return np.append(self.unitaries, self.graph).astype("float32"), -10, self.step_idx >= MAX_STEPS, None # reward = -0.5 for invalid action, not done
         
         e_after = np.real(self.stabilizer_state.expect(PYC_HAMILTONIAN))
         reward = self.energy - e_after - 0.5   # -0.5 for encouraging speed
-        state = np.append(np.flatten(self.unitaries), np.flatten(self.graph))
-        done = np.add(self.graph, np.diag(np.ones(N_QUBITS))).all() and self.unitaries.any(1).all()
-        return state, reward, done, None
+        self.energy = e_after
+        state = np.append(self.unitaries, self.graph)
+        done = self.step_idx >= MAX_STEPS or (np.add(self.graph, np.diag(np.ones(N_QUBITS))).all() and self.unitaries.any(1).all())
+        return state.astype("float32"), reward, done, None
 
     def render(self, mode='human'):
-        if mode != 'human':
-            print(self.pos)
-            return
-        for x in range(self.shape[0]):
-            for y in range(self.shape[1]):
-                end = " " if y < self.shape[0] - 1 else ""
-                bg_color = self.altitude_colors[self.altitudes[x][y]]
-                color = "white" if bg_color == "black" else "black"
-                if self.pos == (x, y):
-                    cprint(" P ", "red", bg_color)
-                else:
-                    cprint(f" {self.altitudes[x][y]} ", color, bg_color)
-            print()
+        print("Step, Energy:", self.step_idx, self.energy)
+        print(np.append(self.unitaries, self.graph))
 
     @staticmethod
     def next_state(state, action, shape=(N_QUBITS, N_QUBITS)):
@@ -235,16 +219,16 @@ class GraphEnv(gym.Env, StaticEnv):
             unitaries[action // 23][action % 23] = 1
         elif action >= shape[0] * 23:
             graph = np.add(graph, ACTIONS[action])
-            if (graph > 1).any(): return state
-        else: return state
+            if (graph > 1).any(): return state.astype("float32")
+        else: return state.astype("float32")
 
-        return np.append(np.flatten(unitaries), np.flatten(graph))
+        return np.append(unitaries, graph).astype("float32")
 
     @staticmethod
     def is_done_state(state, step_idx, shape=(N_QUBITS, N_QUBITS)):
         unitaries = (state[:23 * shape[0]]).reshape((shape[0], 23))
         graph = (state[23 * shape[0]:]).reshape(shape)
-        return step_idx >= 55 or np.add(graph, np.diag(np.ones(N_QUBITS))).all() and unitaries.any(1).all()
+        return step_idx >= MAX_STEPS or np.add(graph, np.diag(np.ones(N_QUBITS))).all() and unitaries.any(1).all()
 
     @staticmethod
     def initial_state(shape=(N_QUBITS, N_QUBITS)):
@@ -252,11 +236,10 @@ class GraphEnv(gym.Env, StaticEnv):
 
     @staticmethod
     def get_obs_for_states(states):
-        return np.array(states)
+        return np.array(states).astype("float32")
 
     @staticmethod
     def get_return(state, step_idx, shape=(N_QUBITS, N_QUBITS)):
-        row, col = np.unravel_index(state, shape)
         unitaries = (state[:23 * shape[0]]).reshape((shape[0], 23))
         graph = (state[23 * shape[0]:]).reshape(shape)
         stabilizer_state = create_stabilizer_state(graph)
@@ -264,7 +247,7 @@ class GraphEnv(gym.Env, StaticEnv):
             pos = unitaries[i].argmax()
             if unitaries[i][pos]: ACTIONS[23 * i + pos].forward(stabilizer_state)
         current_energy = np.real(stabilizer_state.expect(PYC_HAMILTONIAN))
-        return INIT_ENERGY - current_energy - 0.5 * step_idx
+        return INIT_ENERGY - current_energy - 10 * step_idx
 
 
 if __name__ == '__main__':
