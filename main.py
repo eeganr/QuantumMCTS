@@ -20,11 +20,11 @@ use_case = 'graph'
 
 if use_case == 'graph':
     N_QUBITS = 2
-    N_UNITARIES = 2
+    N_UNITARIES = 23
     ENV = GraphEnv
     POLICY = GraphPolicy
-    N_ACTIONS = 2 * N_QUBITS + N_QUBITS * (N_QUBITS - 1) // 2
-    N_OBS = 2 * N_QUBITS + N_QUBITS * N_QUBITS
+    N_ACTIONS = 23 * N_QUBITS + N_QUBITS * (N_QUBITS - 1) // 2
+    N_OBS = 23 * N_QUBITS + N_QUBITS * N_QUBITS
     OBS_TYPE = np.float32
     OBTYPE = [N_OBS]
 else:
@@ -68,6 +68,10 @@ if __name__ == '__main__':
         while not done:
             log(test_env, iteration, step_idx, total_rew)
             p, _ = network.step(np.array([state]))
+
+            p = p[0]
+
+            p = ENV.remove_invalid_actions(state, p)
             
             # print(p)
             action = np.argmax(p)
@@ -75,12 +79,16 @@ if __name__ == '__main__':
             state, reward, done, _ = test_env.step(action)
             step_idx += 1
             total_rew += reward
+        
         log(test_env, iteration, step_idx, total_rew)
+        print("min_energy:", test_env.get_min_energy())
+        print("min_state", test_env.min_stabilizer_state)
 
     value_losses = []
     policy_losses = []
 
     for i in range(1000):
+        print(i)
         print("Training Iteration:", i)
         if i % 50 == 0:
             test_agent(i)
@@ -98,10 +106,11 @@ if __name__ == '__main__':
         np.set_printoptions(threshold=np.inf)
         batch = mem.get_minibatch()
         # print(batch)
-        print("Length of Batch:", len(batch["ob"]))
-        print("Unique obs in batch:", len(np.unique(batch["ob"], axis=0)))
-        print("unique batch:", np.unique(batch["ob"], axis=0))
+        # print("Length of Batch:", len(batch["ob"]))
+        # print("Unique obs in batch:", len(np.unique(batch["ob"], axis=0)))
+        # print("unique batch:", np.unique(batch["ob"], axis=0))
 
         vl, pl = trainer.train(batch["ob"], batch["pi"], batch["return"])
         value_losses.append(vl)
         policy_losses.append(pl)
+        

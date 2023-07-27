@@ -10,13 +10,15 @@ import collections
 import numpy as np
 
 # Exploration constant
-c_PUCT = 1.38
+c_PUCT = 10
 # Dirichlet noise alpha parameter.
 D_NOISE_ALPHA = 0.03
 # Number of steps into the episode after which we always select the
 # action with highest action probability rather than selecting randomly
 TEMP_THRESHOLD = 5
 
+N_UNITARIES = 23
+N_QUBITS = 2
 
 class DummyNode:
     """
@@ -28,6 +30,7 @@ class DummyNode:
         self.parent = None
         self.child_N = collections.defaultdict(float)
         self.child_W = collections.defaultdict(float)
+        self.min_seen_energy = 1e8
 
     def revert_virtual_loss(self, up_to=None): pass
 
@@ -73,6 +76,10 @@ class MCTSNode:
         self.original_prior = np.zeros([n_actions], dtype=np.float32)
         self.child_prior = np.zeros([n_actions], dtype=np.float32)
         self.children = {}
+
+        self.child_W = self.TreeEnv.remove_invalid_actions(self.state, self.child_W)
+        self.energy = self.TreeEnv.get_current_energy(self.state)
+        self.min_seen_energy = self.energy if self.energy < parent.min_seen_energy else parent.min_seen_energy
 
     @property
     def N(self):
@@ -334,7 +341,7 @@ class MCTS:
             # If we encounter done-state, we do not need the agent network to
             # bootstrap. We can backup the value right away.
             if leaf.is_done():
-                value = self.TreeEnv.get_return(leaf.state, leaf.depth)
+                value = -leaf.min_seen_energy
                 leaf.backup_value(value, up_to=self.root)
                 continue
             # Otherwise, discourage other threads to take the same trajectory
@@ -377,8 +384,7 @@ class MCTS:
         self.searches_pi.append(
             self.root.visits_as_probs()) # TODO: Use self.root.position.n < self.temp_threshold as argument
         self.qs.append(self.root.Q)
-        reward = (self.TreeEnv.get_return(self.root.children[action].state,
-                                          self.root.children[action].depth)
+        reward = (self.root.children[action].min_seen_energy
                   - sum(self.rewards))
         self.rewards.append(reward)
 
@@ -412,7 +418,6 @@ def execute_episode(agent_netw, num_simulations, TreeEnv):
     probs, vals = agent_netw.step(
         TreeEnv.get_obs_for_states([first_node.state]))
     first_node.incorporate_estimates(probs[0], vals[0], first_node)
-
     while True:
         mcts.root.inject_noise()
         current_simulations = mcts.root.N
@@ -433,7 +438,7 @@ def execute_episode(agent_netw, num_simulations, TreeEnv):
 
     # Computes the returns at each step from the list of rewards obtained at
     # each step. The return is the sum of rewards obtained *after* the step.
-    ret = [TreeEnv.get_return(mcts.root.state, mcts.root.depth) for _
+    ret = [mcts.root.min_seen_energy for _
            in range(len(mcts.rewards))]
 
     total_rew = np.sum(mcts.rewards)

@@ -131,6 +131,4 @@ def create_edges(qubits):
             edges.append(edge)
     return edges
 
-ACTIONS = construct_all_circuits(10) + create_edges(10)
-
-print(len(ACTIONS))
+e = np.array(create_edges(5))

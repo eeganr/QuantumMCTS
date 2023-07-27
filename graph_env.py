@@ -130,11 +130,15 @@ BOND_DIS = 0.7
 
 N_QUBITS = 2
 
-N_EDGES = N_QUBITS * (N_QUBITS - 1) // 2
+EDGES = create_edges(N_QUBITS)
+
+N_EDGES = len(EDGES)
+
+EDGE_LOCATIONS = [np.where(arr == 1)[0] for arr in EDGES]
 
 MAX_STEPS = N_QUBITS + N_EDGES
 
-ACTIONS = construct_all_circuits(N_QUBITS) + create_edges(N_QUBITS)
+ACTIONS = construct_all_circuits(N_QUBITS) + EDGES
 
 if MOL == "H2":
     PYC_HAMILTONIAN, EE_EXACT, EE_NUC, EE_HF = calculate_hamiltonian([["H", [0.0, 0.0, 0.0]], ["H", [0.0, 0.0, BOND_DIS]]], True)
@@ -172,7 +176,11 @@ class GraphEnv(gym.Env, StaticEnv):
 
         self.stabilizer_state = create_stabilizer_state(self.graph)
 
+        self.min_stabilizer_state = None
+
         self.energy = np.real(self.stabilizer_state.expect(PYC_HAMILTONIAN))
+
+        self.min_energy = 1e8
 
     def reset(self):
 
@@ -183,6 +191,7 @@ class GraphEnv(gym.Env, StaticEnv):
         state = np.append(self.unitaries, self.graph)
         self.stabilizer_state = create_stabilizer_state(self.graph)
         self.energy = INIT_ENERGY
+        self.min_energy = 1e8
         return state.astype("float32"), 0, False, None
 
     def step(self, action):
@@ -202,8 +211,14 @@ class GraphEnv(gym.Env, StaticEnv):
         else: return np.append(self.unitaries, self.graph).astype("float32"), -self.energy - 100, self.step_idx >= MAX_STEPS, None # reward = -0.5 for invalid action, not done
         
         e_after = np.real(self.stabilizer_state.expect(PYC_HAMILTONIAN))
-        reward = -e_after   # -0.5 for encouraging speed
+
+        if e_after < self.min_energy: 
+            self.min_energy = e_after
+            self.min_stabilizer_state = self.stabilizer_state
+
+        reward = -self.min_energy
         self.energy = e_after
+
         state = np.append(self.unitaries, self.graph)
         done = self.step_idx >= MAX_STEPS or (np.add(self.graph, np.diag(np.ones(N_QUBITS))).all() and self.unitaries.any(1).all())
         return state.astype("float32"), reward, done, None
@@ -241,20 +256,32 @@ class GraphEnv(gym.Env, StaticEnv):
         return np.array(states).astype("float32")
 
     @staticmethod
-    def get_return(state, step_idx, shape=(N_QUBITS, N_QUBITS)):
+    def get_current_energy(state, shape=(N_QUBITS, N_QUBITS)):
         unitaries = (state[:N_UNITARIES * shape[0]]).reshape((shape[0], N_UNITARIES))
         graph = (state[N_UNITARIES * shape[0]:]).reshape(shape)
-
-        legal_moves = np.count_nonzero(graph) // 2 + np.count_nonzero(unitaries)
-        illegal_moves = step_idx - legal_moves
 
         stabilizer_state = create_stabilizer_state(graph)
         for i in range(len(unitaries)):
             pos = unitaries[i].argmax()
             if unitaries[i][pos]: ACTIONS[N_UNITARIES * i + pos].forward(stabilizer_state)
         current_energy = np.real(stabilizer_state.expect(PYC_HAMILTONIAN))
-        return -current_energy - 100 * illegal_moves
+        return current_energy
+    
+    @staticmethod
+    def remove_invalid_actions(state, weights):
+        unitaries = (state[:N_UNITARIES * N_QUBITS]).reshape((N_QUBITS, N_UNITARIES))
+        graph = (state[N_UNITARIES * N_QUBITS:]).reshape((N_QUBITS, N_QUBITS))
+        weights[np.append(np.kron((unitaries > 0).any(1), [True] * N_UNITARIES), [False] * N_EDGES)] = -np.inf
+        
 
+        graph_edges = np.transpose(np.nonzero(graph))
+        for edge_loc in range(len(EDGE_LOCATIONS)):
+            if np.any(np.all(np.isin(graph_edges, EDGE_LOCATIONS[edge_loc]), axis=1)):
+                weights[N_UNITARIES * N_QUBITS + edge_loc] = -np.inf
+        return weights
+
+    def get_min_energy(self):
+        return self.min_energy + EE_NUC
 
 if __name__ == '__main__':
     env = GraphEnv()
