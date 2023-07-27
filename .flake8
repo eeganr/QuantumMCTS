@@ -4,7 +4,8 @@ exclude =
     .git, .gitignore, README.md, Dockerfile, __init__.py,
     *.txt, *.conf, *.sh,
     .idea/, .vscode/, static/,
-    manage.py
+    manage.py,
+    circuit.py,
 
 
 # print total number of errors. off for now

@@ -126,7 +126,7 @@ def create_edges(qubits):
 
 MOL = "H2"
 
-BOND_DIS = 1.6
+BOND_DIS = 0.7
 
 N_QUBITS = 2
 
@@ -166,7 +166,7 @@ class GraphEnv(gym.Env, StaticEnv):
 
         self.graph = np.zeros(self.shape)
 
-        self.unitaries = np.zeros((N_QUBITS, 23))
+        self.unitaries = np.zeros((N_QUBITS, N_UNITARIES))
 
         self.step_idx = 0
 
@@ -178,29 +178,31 @@ class GraphEnv(gym.Env, StaticEnv):
 
         self.graph = np.zeros(self.shape)
 
-        self.unitaries = np.zeros((N_QUBITS, 23))
+        self.unitaries = np.zeros((N_QUBITS, N_UNITARIES))
         self.step_idx = 0
         state = np.append(self.unitaries, self.graph)
+        self.stabilizer_state = create_stabilizer_state(self.graph)
+        self.energy = INIT_ENERGY
         return state.astype("float32"), 0, False, None
 
     def step(self, action):
         self.step_idx += 1
 
-        if action < N_QUBITS * 23 and (self.unitaries[action // 23] == 0).all():
-            self.unitaries[action // 23][action % 23] = 1
+        if action < N_QUBITS * N_UNITARIES and (self.unitaries[action // N_UNITARIES] == 0).all():
+            self.unitaries[action // N_UNITARIES][action % N_UNITARIES] = 1
             ACTIONS[action].forward(self.stabilizer_state)
-        elif action >= N_QUBITS * 23:
+        elif action >= N_QUBITS * N_UNITARIES:
             temp_graph = np.add(self.graph, ACTIONS[action])
-            if (temp_graph > 1).any(): return np.append(self.unitaries, self.graph).astype("float32"), -10, self.step_idx >= MAX_STEPS, None # reward = -0.5 for already connected edge, not done
+            if (temp_graph > 1).any(): return np.append(self.unitaries, self.graph).astype("float32"), -self.energy - 100, self.step_idx >= MAX_STEPS, None # reward = -0.5 for already connected edge, not done
             self.graph = temp_graph
             self.stabilizer_state = create_stabilizer_state(self.graph)
             for i in range(len(self.unitaries)):
                 pos = self.unitaries[i].argmax()
-                if self.unitaries[i][pos]: ACTIONS[23 * i + pos].forward(self.stabilizer_state)
-        else: return np.append(self.unitaries, self.graph).astype("float32"), -10, self.step_idx >= MAX_STEPS, None # reward = -0.5 for invalid action, not done
+                if self.unitaries[i][pos]: ACTIONS[N_UNITARIES * i + pos].forward(self.stabilizer_state)
+        else: return np.append(self.unitaries, self.graph).astype("float32"), -self.energy - 100, self.step_idx >= MAX_STEPS, None # reward = -0.5 for invalid action, not done
         
         e_after = np.real(self.stabilizer_state.expect(PYC_HAMILTONIAN))
-        reward = self.energy - e_after - 0.5   # -0.5 for encouraging speed
+        reward = -e_after   # -0.5 for encouraging speed
         self.energy = e_after
         state = np.append(self.unitaries, self.graph)
         done = self.step_idx >= MAX_STEPS or (np.add(self.graph, np.diag(np.ones(N_QUBITS))).all() and self.unitaries.any(1).all())
@@ -212,12 +214,12 @@ class GraphEnv(gym.Env, StaticEnv):
 
     @staticmethod
     def next_state(state, action, shape=(N_QUBITS, N_QUBITS)):
-        unitaries = (state[:23 * shape[0]]).reshape((shape[0], 23))
-        graph = (state[23 * shape[0]:]).reshape(shape)
+        unitaries = (state[:N_UNITARIES * shape[0]]).reshape((shape[0], N_UNITARIES))
+        graph = (state[N_UNITARIES * shape[0]:]).reshape(shape)
         
-        if action < shape[0] * 23 and (unitaries[action // 23] == 0).all():
-            unitaries[action // 23][action % 23] = 1
-        elif action >= shape[0] * 23:
+        if action < shape[0] * N_UNITARIES and (unitaries[action // N_UNITARIES] == 0).all():
+            unitaries[action // N_UNITARIES][action % N_UNITARIES] = 1
+        elif action >= shape[0] * N_UNITARIES:
             graph = np.add(graph, ACTIONS[action])
             if (graph > 1).any(): return state.astype("float32")
         else: return state.astype("float32")
@@ -226,13 +228,13 @@ class GraphEnv(gym.Env, StaticEnv):
 
     @staticmethod
     def is_done_state(state, step_idx, shape=(N_QUBITS, N_QUBITS)):
-        unitaries = (state[:23 * shape[0]]).reshape((shape[0], 23))
-        graph = (state[23 * shape[0]:]).reshape(shape)
-        return step_idx >= MAX_STEPS or np.add(graph, np.diag(np.ones(N_QUBITS))).all() and unitaries.any(1).all()
+        unitaries = (state[:N_UNITARIES * shape[0]]).reshape((shape[0], N_UNITARIES))
+        graph = (state[N_UNITARIES * shape[0]:]).reshape(shape)
+        return step_idx >= MAX_STEPS or (np.add(graph, np.diag(np.ones(N_QUBITS))).all() and unitaries.any(1).all())
 
     @staticmethod
     def initial_state(shape=(N_QUBITS, N_QUBITS)):
-        return np.zeros(shape[0] * 23 + shape[0] * shape[1])
+        return np.zeros(shape[0] * N_UNITARIES + shape[0] * shape[1])
 
     @staticmethod
     def get_obs_for_states(states):
@@ -240,14 +242,18 @@ class GraphEnv(gym.Env, StaticEnv):
 
     @staticmethod
     def get_return(state, step_idx, shape=(N_QUBITS, N_QUBITS)):
-        unitaries = (state[:23 * shape[0]]).reshape((shape[0], 23))
-        graph = (state[23 * shape[0]:]).reshape(shape)
+        unitaries = (state[:N_UNITARIES * shape[0]]).reshape((shape[0], N_UNITARIES))
+        graph = (state[N_UNITARIES * shape[0]:]).reshape(shape)
+
+        legal_moves = np.count_nonzero(graph) // 2 + np.count_nonzero(unitaries)
+        illegal_moves = step_idx - legal_moves
+
         stabilizer_state = create_stabilizer_state(graph)
         for i in range(len(unitaries)):
             pos = unitaries[i].argmax()
-            if unitaries[i][pos]: ACTIONS[23 * i + pos].forward(stabilizer_state)
+            if unitaries[i][pos]: ACTIONS[N_UNITARIES * i + pos].forward(stabilizer_state)
         current_energy = np.real(stabilizer_state.expect(PYC_HAMILTONIAN))
-        return INIT_ENERGY - current_energy - 10 * step_idx
+        return -current_energy - 100 * illegal_moves
 
 
 if __name__ == '__main__':
