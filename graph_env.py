@@ -128,20 +128,6 @@ MOL = "H2O"
 
 BOND_DIS = 1.7
 
-N_QUBITS = 10
-
-EDGES = create_edges(N_QUBITS)
-
-N_EDGES = len(EDGES)
-
-EDGE_LOCATIONS = [np.where(arr == 1)[0] for arr in EDGES]
-
-MAX_STEPS = N_QUBITS + N_EDGES
-
-ACTIONS = construct_all_circuits(N_QUBITS) + EDGES
-
-N_ACTIONS = len(ACTIONS)
-
 if MOL == "H2":
     PYC_HAMILTONIAN, EE_EXACT, EE_NUC, EE_HF = calculate_hamiltonian([["H", [0.0, 0.0, 0.0]], ["H", [0.0, 0.0, BOND_DIS]]], True)
 elif MOL == "H2O":
@@ -154,6 +140,20 @@ elif MOL == "H2O":
     bond1 = np.linalg.norm(c1 - c2)
     bond2 = np.linalg.norm(c3 - c2) 
     PYC_HAMILTONIAN, EE_EXACT, EE_NUC, EE_HF = calculate_hamiltonian([["H", c1], ["O", c2], ["H", c3]], True)
+
+N_QUBITS = PYC_HAMILTONIAN.N
+
+EDGES = create_edges(N_QUBITS)
+
+N_EDGES = len(EDGES)
+
+EDGE_LOCATIONS = [np.where(arr == 1)[0] for arr in EDGES]
+
+MAX_STEPS = N_QUBITS + N_EDGES
+
+ACTIONS = construct_all_circuits(N_QUBITS) + EDGES
+
+N_ACTIONS = len(ACTIONS)
 
 INIT_ENERGY = np.real(create_stabilizer_state(np.zeros((N_QUBITS, N_QUBITS))).expect(PYC_HAMILTONIAN))
 
