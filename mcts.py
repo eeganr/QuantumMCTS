@@ -17,6 +17,8 @@ D_NOISE_ALPHA = 0.03
 # action with highest action probability rather than selecting randomly
 TEMP_THRESHOLD = 5
 
+N_UNITARIES = 23
+N_QUBITS = 2
 
 class DummyNode:
     """
@@ -28,6 +30,7 @@ class DummyNode:
         self.parent = None
         self.child_N = collections.defaultdict(float)
         self.child_W = collections.defaultdict(float)
+        self.min_seen_energy = 1e8
 
     def revert_virtual_loss(self, up_to=None): pass
 
@@ -65,6 +68,9 @@ class MCTSNode:
         self.action = action
         self.state = state
         self.n_actions = n_actions
+
+        self.n_legal_actions = self.TreeEnv.get_n_legal_actions(self.state)
+
         self.is_expanded = False
         self.n_vlosses = 0  # Number of virtual losses on this node
         self.child_N = np.zeros([n_actions], dtype=np.float32)
@@ -73,6 +79,10 @@ class MCTSNode:
         self.original_prior = np.zeros([n_actions], dtype=np.float32)
         self.child_prior = np.zeros([n_actions], dtype=np.float32)
         self.children = {}
+
+        self.child_W = self.TreeEnv.remove_invalid_actions(self.state, self.child_W)
+        self.energy = self.TreeEnv.get_current_energy(self.state)
+        self.min_seen_energy = self.energy if self.energy < parent.min_seen_energy else parent.min_seen_energy
 
     @property
     def N(self):
@@ -119,6 +129,17 @@ class MCTSNode:
         means the node should be traversed.
         """
         return self.child_Q + self.child_U
+    
+    def get_parent_states(self):
+        """
+        Get all states of parents of this node (inclusive of starting node).
+        """
+        current = self
+        parent_states = []
+        while type(current) is not DummyNode:
+            parent_states.append(current.state)
+            current = current.parent
+        return parent_states
 
     def select_leaf(self):
         """
@@ -139,6 +160,7 @@ class MCTSNode:
                 break
             # Choose action with highest score.
             best_move = np.argmax(current.child_action_score)
+            # print("Curr action score:", current.child_action_score)
             current = current.maybe_add_child(best_move)
         return current
 
@@ -153,6 +175,7 @@ class MCTSNode:
         if action not in self.children:
             # Obtain state following given action.
             new_state = self.TreeEnv.next_state(self.state, action)
+            # print("new state:", new_state)
             self.children[action] = MCTSNode(new_state, self.n_actions,
                                              self.TreeEnv,
                                              action=action, parent=self)
@@ -217,9 +240,15 @@ class MCTSNode:
             return
         self.is_expanded = True
         self.original_prior = self.child_prior = action_probs
-        # This is a deviation from the paper that led to better results in
+        # This is a deviation from the paper that led to better results in TODO: check???
         # practice (following the MiniGo implementation).
         self.child_W = np.ones([self.n_actions], dtype=np.float32) * value
+        self.child_W = self.TreeEnv.remove_invalid_actions(self.state, self.child_W) # TODO: check bug fix?
+        # print("self.state", self.state)
+        # print("child_W", self.child_W)
+        # print("original_prior", self.original_prior)
+        # print("child_prior", self.child_prior)
+        # print(".....")
         self.backup_value(value, up_to=up_to)
 
     def backup_value(self, value, up_to):
@@ -326,15 +355,17 @@ class MCTS:
         # Failsafe for when we encounter almost only done-states which would
         # prevent the loop from ever ending.
         failsafe = 0
-        while len(leaves) < num_parallel and failsafe < num_parallel * 2:
+        while len(leaves) < num_parallel and failsafe < num_parallel * 2 and len(leaves) < self.root.n_legal_actions:
             failsafe += 1
             # self.root.print_tree()
             # print("_"*50)
             leaf = self.root.select_leaf()
+            # print("root state:", self.root.state)
             # If we encounter done-state, we do not need the agent network to
             # bootstrap. We can backup the value right away.
             if leaf.is_done():
-                value = self.TreeEnv.get_return(leaf.state, leaf.depth)
+                # print("is done!")
+                value = self.TreeEnv.get_return(leaf.get_parent_states())
                 leaf.backup_value(value, up_to=self.root)
                 continue
             # Otherwise, discourage other threads to take the same trajectory
@@ -342,6 +373,8 @@ class MCTS:
             # network.
             leaf.add_virtual_loss(up_to=self.root)
             leaves.append(leaf)
+            # print('added leaf, array:', [l.state for l in leaves])
+        # print("exited tree search while")
         # Evaluate the leaf-states all at once and backup the value estimates.
         if leaves:
             action_probs, values = self.agent_netw.step(
@@ -372,13 +405,13 @@ class MCTS:
         :param action: Action to take for the root state.
         """
         # Store data to be used as experience tuples.
+
         ob = self.TreeEnv.get_obs_for_states([self.root.state])
         self.obs.append(ob)
         self.searches_pi.append(
             self.root.visits_as_probs()) # TODO: Use self.root.position.n < self.temp_threshold as argument
         self.qs.append(self.root.Q)
-        reward = (self.TreeEnv.get_return(self.root.children[action].state,
-                                          self.root.children[action].depth)
+        reward = (self.TreeEnv.get_return(self.root.children[action].get_parent_states())
                   - sum(self.rewards))
         self.rewards.append(reward)
 
@@ -412,14 +445,15 @@ def execute_episode(agent_netw, num_simulations, TreeEnv):
     probs, vals = agent_netw.step(
         TreeEnv.get_obs_for_states([first_node.state]))
     first_node.incorporate_estimates(probs[0], vals[0], first_node)
-
     while True:
         mcts.root.inject_noise()
+        # print("priors after noise:", mcts.root.child_prior)
         current_simulations = mcts.root.N
 
         # We want `num_simulations` simulations per action not counting
         # simulations from previous actions.
         while mcts.root.N < current_simulations + num_simulations:
+            # print("simulations:", mcts.root.N)
             mcts.tree_search()
 
         # mcts.root.print_tree()
@@ -428,16 +462,16 @@ def execute_episode(agent_netw, num_simulations, TreeEnv):
         action = mcts.pick_action()
         mcts.take_action(action)
 
-        if mcts.root.is_done():
+        if mcts.root.is_done(): # Checked if this gets triggered accidentally, it doesn't
+            # print('done?')
             break
 
     # Computes the returns at each step from the list of rewards obtained at
     # each step. The return is the sum of rewards obtained *after* the step.
-    ret = [TreeEnv.get_return(mcts.root.state, mcts.root.depth) for _
+    ret = [TreeEnv.get_return(mcts.root.get_parent_states()) for _
            in range(len(mcts.rewards))]
 
     total_rew = np.sum(mcts.rewards)
 
     obs = np.concatenate(mcts.obs)
     return (obs, mcts.searches_pi, ret, total_rew, mcts.root.state)
-

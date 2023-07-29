@@ -69,12 +69,19 @@ class GraphPolicy(nn.Module):
         # obs_one_hot = torch.zeros((obs.shape[0], self.n_obs))
         # obs_one_hot[np.arange(obs.shape[0]), obs] = 1.0
         # h_relu = F.relu(self.dense1(obs_one_hot))
-       
+        
+        # print("obs:", obs)
         h_relu = F.relu(self.dense1(obs))
+        # do the same print for h_relu
+        # print("mean, std, min, max, median", h_relu.mean().item(), h_relu.std().item(), h_relu.min().item(), h_relu.max().item(), h_relu.median().item())
+        # print('###')
         logits = self.dense_p(h_relu)
+        # do the same print for logits
         policy = F.softmax(logits, dim=1)
 
         value = self.dense_v(h_relu).view(-1)
+
+        # print("policy, value,", policy, value)
 
         return logits, policy, value
 
