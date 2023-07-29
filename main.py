@@ -23,8 +23,8 @@ if use_case == 'graph':
     N_UNITARIES = 23
     ENV = GraphEnv
     POLICY = GraphPolicy
-    N_ACTIONS = 23 * N_QUBITS + N_QUBITS * (N_QUBITS - 1) // 2
-    N_OBS = 23 * N_QUBITS + N_QUBITS * N_QUBITS
+    N_ACTIONS = N_UNITARIES * N_QUBITS + N_QUBITS * (N_QUBITS - 1) // 2
+    N_OBS = N_UNITARIES * N_QUBITS + N_QUBITS * N_QUBITS
     OBS_TYPE = np.float32
     OBTYPE = [N_OBS]
 else:
@@ -71,7 +71,7 @@ if __name__ == '__main__':
 
             p = p[0]
 
-            p = ENV.remove_invalid_actions(state, p)
+            # p = ENV.remove_invalid_actions(state, p)
             
             # print(p)
             action = np.argmax(p)
@@ -88,7 +88,6 @@ if __name__ == '__main__':
     policy_losses = []
 
     for i in range(1000):
-        print(i)
         print("Training Iteration:", i)
         if i % 50 == 0:
             test_agent(i)
@@ -96,11 +95,12 @@ if __name__ == '__main__':
             plt.plot(policy_losses, label="policy loss")
             plt.legend()
             plt.show()
-
+        
         obs, pis, returns, total_reward, done_state = execute_episode(network,
                                                                       32,
                                                                       ENV)
         
+
         mem.add_all({"ob": obs, "pi": pis, "return": returns})
 
         np.set_printoptions(threshold=np.inf)
@@ -109,6 +109,8 @@ if __name__ == '__main__':
         # print("Length of Batch:", len(batch["ob"]))
         # print("Unique obs in batch:", len(np.unique(batch["ob"], axis=0)))
         # print("unique batch:", np.unique(batch["ob"], axis=0))
+        # print("search pis:", batch["pi"])
+        # print("rewards", batch["return"])
 
         vl, pl = trainer.train(batch["ob"], batch["pi"], batch["return"])
         value_losses.append(vl)

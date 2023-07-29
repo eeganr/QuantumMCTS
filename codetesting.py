@@ -119,7 +119,7 @@ def construct_all_circuits(qubits):
         for op in possibleops:
             qubit_circuits.append(construct_circ([gate(i, k) for k in op]))
         circuits.append(qubit_circuits)
-    return list(np.array(circuits).flatten())
+    return circuits
 
 def create_edges(qubits):
     edges = []
@@ -131,4 +131,13 @@ def create_edges(qubits):
             edges.append(edge)
     return edges
 
-e = np.array(create_edges(5))
+circs = construct_all_circuits(2)
+
+x = create_stabilizer_state(np.array([[0, 0], [0, 0]]))
+
+circs[0][1].forward(x)
+circs[1][22].forward(x)
+
+print(x)
+
+
