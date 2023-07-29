@@ -19,7 +19,7 @@ from mcts import execute_episode
 use_case = 'graph'
 
 if use_case == 'graph':
-    N_QUBITS = 2
+    N_QUBITS = 10
     N_UNITARIES = 23
     ENV = GraphEnv
     POLICY = GraphPolicy
@@ -96,6 +96,7 @@ if __name__ == '__main__':
             plt.legend()
             plt.show()
         
+        t = time.time()
         obs, pis, returns, total_reward, done_state = execute_episode(network,
                                                                       32,
                                                                       ENV)
@@ -115,4 +116,4 @@ if __name__ == '__main__':
         vl, pl = trainer.train(batch["ob"], batch["pi"], batch["return"])
         value_losses.append(vl)
         policy_losses.append(pl)
-        
+        print("Time:", time.time() - t)

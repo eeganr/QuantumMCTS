@@ -124,11 +124,11 @@ def create_edges(qubits):
             edges.append(edge)
     return edges
 
-MOL = "H2"
+MOL = "H2O"
 
-BOND_DIS = 1.6
+BOND_DIS = 1.7
 
-N_QUBITS = 2
+N_QUBITS = 10
 
 EDGES = create_edges(N_QUBITS)
 
@@ -231,8 +231,8 @@ class GraphEnv(gym.Env, StaticEnv):
 
     @staticmethod
     def next_state(state, action, shape=(N_QUBITS, N_QUBITS)):
-        unitaries = deepcopy(state)
-        graph = deepcopy(state)
+        unitaries = state.copy()
+        graph = state.copy()
         unitaries = (unitaries[:N_UNITARIES * shape[0]]).reshape((shape[0], N_UNITARIES))
         graph = (graph[N_UNITARIES * shape[0]:]).reshape(shape)
         
@@ -247,8 +247,8 @@ class GraphEnv(gym.Env, StaticEnv):
 
     @staticmethod
     def is_done_state(state, step_idx, shape=(N_QUBITS, N_QUBITS)):
-        unitaries = deepcopy(state)
-        graph = deepcopy(state)
+        unitaries = state.copy()
+        graph = state.copy()
         unitaries = (unitaries[:N_UNITARIES * shape[0]]).reshape((shape[0], N_UNITARIES))
         graph = (graph[N_UNITARIES * shape[0]:]).reshape(shape)
         return step_idx >= MAX_STEPS or (np.add(graph, np.diag(np.ones(N_QUBITS))).all() and unitaries.any(1).all())
@@ -293,8 +293,8 @@ class GraphEnv(gym.Env, StaticEnv):
     
     @staticmethod
     def get_current_energy(state, shape=(N_QUBITS, N_QUBITS)):
-        unitaries = deepcopy(state)
-        graph = deepcopy(state)
+        unitaries = state.copy()
+        graph = state.copy()
         unitaries = (unitaries[:N_UNITARIES * shape[0]]).reshape((shape[0], N_UNITARIES))
         graph = (graph[N_UNITARIES * shape[0]:]).reshape(shape)
 
@@ -307,9 +307,9 @@ class GraphEnv(gym.Env, StaticEnv):
     
     @staticmethod
     def remove_invalid_actions(state, weights):
-        unitaries = deepcopy(state)
-        graph = deepcopy(state)
-        w = deepcopy(weights)
+        unitaries = state.copy()
+        graph = state.copy()
+        w = weights.copy()
 
         unitaries = (unitaries[:N_UNITARIES * N_QUBITS]).reshape((N_QUBITS, N_UNITARIES))
         graph = (graph[N_UNITARIES * N_QUBITS:]).reshape((N_QUBITS, N_QUBITS))
@@ -324,8 +324,8 @@ class GraphEnv(gym.Env, StaticEnv):
 
     @staticmethod
     def get_n_legal_actions(state, shape=(N_QUBITS, N_QUBITS)):
-        unitaries = deepcopy(state)
-        graph = deepcopy(state)
+        unitaries = state.copy()
+        graph = state.copy()
         unitaries = (unitaries[:N_UNITARIES * shape[0]]).reshape((shape[0], N_UNITARIES))
         graph = (graph[N_UNITARIES * shape[0]:]).reshape(shape)
         
