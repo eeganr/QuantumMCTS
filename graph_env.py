@@ -126,7 +126,7 @@ def create_edges(qubits):
 
 MOL = "H2"
 
-BOND_DIS = 1.7
+BOND_DIS = 0.6
 
 if MOL == "H2":
     PYC_HAMILTONIAN, EE_EXACT, EE_NUC, EE_HF = calculate_hamiltonian([["H", [0.0, 0.0, 0.0]], ["H", [0.0, 0.0, BOND_DIS]]], True)
@@ -264,12 +264,10 @@ class GraphEnv(gym.Env, StaticEnv):
     
     @staticmethod
     def get_return(parent_states, shape=(N_QUBITS, N_QUBITS)):
-        states = deepcopy(parent_states)
-        states_graph = deepcopy(parent_states)
         energies = []
-        for i in range(len(states)):
-            unitaries = (states[i][:N_UNITARIES * shape[0]]).reshape((shape[0], N_UNITARIES))
-            graph = (states_graph[i][N_UNITARIES * shape[0]:]).reshape(shape)
+        for i in range(len(parent_states)):
+            unitaries = (parent_states[i][:N_UNITARIES * shape[0]]).reshape((shape[0], N_UNITARIES))
+            graph = (parent_states[i][N_UNITARIES * shape[0]:]).reshape(shape)
             stabilizer_state = create_stabilizer_state(graph)
             for i in range(len(unitaries)):
                 pos = unitaries[i].argmax()
@@ -307,27 +305,20 @@ class GraphEnv(gym.Env, StaticEnv):
     
     @staticmethod
     def remove_invalid_actions(state, weights):
-        unitaries = state.copy()
-        graph = state.copy()
-        w = weights.copy()
 
-        unitaries = (unitaries[:N_UNITARIES * N_QUBITS]).reshape((N_QUBITS, N_UNITARIES))
-        graph = (graph[N_UNITARIES * N_QUBITS:]).reshape((N_QUBITS, N_QUBITS))
-        w[np.append(np.kron((unitaries > 0).any(1), [True] * N_UNITARIES), [False] * N_EDGES)] = 0
+        unitaries = (state[:N_UNITARIES * N_QUBITS]).reshape((N_QUBITS, N_UNITARIES))
+        graph = (state[N_UNITARIES * N_QUBITS:]).reshape((N_QUBITS, N_QUBITS))
+        weights[np.append(np.kron((unitaries > 0).any(1), [True] * N_UNITARIES), [False] * N_EDGES)] = 0
         
 
         graph_edges = np.transpose(np.nonzero(graph))
         for edge_loc in range(len(EDGE_LOCATIONS)):
             if np.any(np.all(np.isin(graph_edges, EDGE_LOCATIONS[edge_loc]), axis=1)):
-                w[N_UNITARIES * N_QUBITS + edge_loc] = 0
-        return w
+                weights[N_UNITARIES * N_QUBITS + edge_loc] = 0
+        return weights
 
     @staticmethod
-    def get_n_legal_actions(state, shape=(N_QUBITS, N_QUBITS)):
-        unitaries = state.copy()
-        graph = state.copy()
-        unitaries = (unitaries[:N_UNITARIES * shape[0]]).reshape((shape[0], N_UNITARIES))
-        graph = (graph[N_UNITARIES * shape[0]:]).reshape(shape)
+    def get_n_legal_actions(state):
         
         weights = GraphEnv.remove_invalid_actions(state, np.ones(N_ACTIONS))
 
