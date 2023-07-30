@@ -18,7 +18,6 @@ D_NOISE_ALPHA = 0.03
 TEMP_THRESHOLD = 5
 
 N_UNITARIES = 23
-N_QUBITS = 2
 
 class DummyNode:
     """

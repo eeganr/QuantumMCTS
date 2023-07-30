@@ -10,30 +10,18 @@ import numpy as np
 # import matplotlib.pyplot as plt
 
 from trainer import Trainer
-from policy import HillClimbingPolicy, GraphPolicy
+from policy import GraphPolicy
 from replay_memory import ReplayMemory
-from hill_climbing_env import HillClimbingEnv
+from cProfile import Profile
 from graph_env import GraphEnv
 from mcts import execute_episode
 
-use_case = 'graph'
-
-if use_case == 'graph':
-    N_QUBITS = 10
-    N_UNITARIES = 23
-    ENV = GraphEnv
-    POLICY = GraphPolicy
-    N_ACTIONS = N_UNITARIES * N_QUBITS + N_QUBITS * (N_QUBITS - 1) // 2
-    N_OBS = N_UNITARIES * N_QUBITS + N_QUBITS * N_QUBITS
-    OBS_TYPE = np.float32
-    OBTYPE = [N_OBS]
-else:
-    ENV = HillClimbingEnv
-    POLICY = HillClimbingPolicy
-    N_ACTIONS = 4
-    N_OBS = 49
-    OBS_TYPE = np.long
-    OBTYPE = []
+N_QUBITS = 2
+N_UNITARIES = 23
+N_ACTIONS = N_UNITARIES * N_QUBITS + N_QUBITS * (N_QUBITS - 1) // 2
+N_OBS = N_UNITARIES * N_QUBITS + N_QUBITS * N_QUBITS
+OBS_TYPE = np.float32
+OBTYPE = [N_OBS]
 
 def log(test_env, iteration, step_idx, total_rew):
 
@@ -49,7 +37,7 @@ if __name__ == '__main__':
     n_actions = N_ACTIONS
     n_obs = N_OBS
 
-    trainer = Trainer(lambda: POLICY(n_obs, 20, n_actions))
+    trainer = Trainer(lambda: GraphPolicy(n_obs, 20, n_actions))
     network = trainer.step_model
 
     mem = ReplayMemory(200,
@@ -61,7 +49,7 @@ if __name__ == '__main__':
                         "return": []})
 
     def test_agent(iteration):
-        test_env = ENV()
+        test_env = GraphEnv()
         total_rew = 0
         state, reward, done, _ = test_env.reset()
         step_idx = 0
@@ -71,7 +59,7 @@ if __name__ == '__main__':
 
             p = p[0]
 
-            # p = ENV.remove_invalid_actions(state, p)
+            # p = GraphEnv.remove_invalid_actions(state, p)
             
             # print(p)
             action = np.argmax(p)
@@ -99,7 +87,7 @@ if __name__ == '__main__':
         t = time.time()
         obs, pis, returns, total_reward, done_state = execute_episode(network,
                                                                       32,
-                                                                      ENV)
+                                                                      GraphEnv)
         
 
         mem.add_all({"ob": obs, "pi": pis, "return": returns})

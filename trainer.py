@@ -4,8 +4,6 @@ import torch.nn.functional as F
 from graph_env import GraphEnv
 import numpy as np
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
 class Trainer:
     """
     Trainer for an MCTS policy network. Trains the network to minimize

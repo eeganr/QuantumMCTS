@@ -124,7 +124,7 @@ def create_edges(qubits):
             edges.append(edge)
     return edges
 
-MOL = "H2O"
+MOL = "H2"
 
 BOND_DIS = 1.7
 
