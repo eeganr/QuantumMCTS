@@ -7,7 +7,7 @@ import shutup
 shutup.please()
 import time
 import numpy as np
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 from trainer import Trainer
 from policy import HillClimbingPolicy, GraphPolicy
@@ -91,10 +91,10 @@ if __name__ == '__main__':
         print("Training Iteration:", i)
         if i % 50 == 0:
             test_agent(i)
-            plt.plot(value_losses, label="value loss")
-            plt.plot(policy_losses, label="policy loss")
-            plt.legend()
-            plt.show()
+            # plt.plot(value_losses, label="value loss")
+            # plt.plot(policy_losses, label="policy loss")
+            # plt.legend()
+            # plt.show()
         
         t = time.time()
         obs, pis, returns, total_reward, done_state = execute_episode(network,
