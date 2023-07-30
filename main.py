@@ -12,7 +12,6 @@ import numpy as np
 from trainer import Trainer
 from policy import GraphPolicy
 from replay_memory import ReplayMemory
-from cProfile import Profile
 from graph_env import GraphEnv
 from mcts import execute_episode
 
@@ -27,7 +26,7 @@ def log(test_env, iteration, step_idx, total_rew):
 
     time.sleep(0.1)
     print()
-    test_env.render()
+    # test_env.render()
     print(f"Training Episodes: {iteration}")
     print(f"Step: {step_idx}")
     print(f"Return: {total_rew}")
@@ -68,7 +67,7 @@ if __name__ == '__main__':
             step_idx += 1
             total_rew += reward
         
-        log(test_env, iteration, step_idx, total_rew)
+        # log(test_env, iteration, step_idx, total_rew)
         print("min_energy:", test_env.get_min_energy())
         print("min_state", test_env.min_stabilizer_state)
 
@@ -78,6 +77,7 @@ if __name__ == '__main__':
     for i in range(1000):
         print("Training Iteration:", i)
         if i % 50 == 0:
+            # print("Training Iteration:", i)
             test_agent(i)
             # plt.plot(value_losses, label="value loss")
             # plt.plot(policy_losses, label="policy loss")
@@ -85,6 +85,18 @@ if __name__ == '__main__':
             # plt.show()
         
         t = time.time()
+
+        # with Profile() as profile:
+        #     print(f"{execute_episode(network, 32, GraphEnv)}")
+        #     (
+        #         Stats(profile)
+        #         .strip_dirs()
+        #         .sort_stats(SortKey.CALLS)
+        #         .print_stats()
+        #     )
+        
+
+
         obs, pis, returns, total_reward, done_state = execute_episode(network,
                                                                       32,
                                                                       GraphEnv)
