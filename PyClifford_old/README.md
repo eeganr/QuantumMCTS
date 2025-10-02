@@ -33,5 +33,7 @@ The implementation of the Monte-Carlo tree search algorithm in `mcts.py` was ada
 
 ## Contributors
 
-This repository was part of a Bachelor Thesis project by Felix Opolka supervised by Vladimir Golkov and Prof. Daniel Cremers. 
+Note from Eegan: I built upon this by using this as the optimizer for my own quantum framework. The work regarding some of the optimizer was written by the people below. However, the quantum simulator and such is my own work. See credit below:
+
+This library was part of a Bachelor Thesis project by Felix Opolka supervised by Vladimir Golkov and Prof. Daniel Cremers. 
 
